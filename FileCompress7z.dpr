@@ -70,7 +70,7 @@ begin
   if not DirectoryExists(ARootDirectory + LFileNameOnly) then
     ForceDirectories(ARootDirectory + LFileNameOnly);
 
-  ExecuteAndWait(EXE_7Z + ' ' + 'a -mx9 -md128m -mfb128 -mmt=off -v100m "'
+  ExecuteAndWait(EXE_7Z + ' ' + 'a -mx9 -md128m -mfb128 -mmt=off -v500m "'
     + IncludeTrailingPathDelimiter(ARootDirectory + LFileNameOnly) + LFileNameOnly + '.7z" "'
     + ARootDirectory + AFilename + '"');
 end;
