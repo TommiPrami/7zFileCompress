@@ -12,33 +12,30 @@ var
   LStartupInfo: TStartupInfo;
   LProcessInformation: TProcessInformation;
   LCommandLine: string;
+  LExitCode: DWORD;
 begin
   LCommandLine := Trim(ACommandLine);
 
   FillChar(LStartupInfo, SizeOf(LStartupInfo), 0);
 
   LStartupInfo.cb := SizeOf(TStartupInfo);
-  LStartupInfo.wShowWindow := SW_HIDE;
+  LStartupInfo.wShowWindow := SW_SHOW;
 
-  if CreateProcess(nil, PChar(LCommandLine), nil, nil, True, CREATE_NO_WINDOW, nil, nil, LStartupInfo,
+  if CreateProcess(nil, PChar(LCommandLine), nil, nil, True, 0, nil, nil, LStartupInfo,
     LProcessInformation) then
   try
-
-    // loop every 10 ms
-    while WaitForSingleObject(LProcessInformation.hProcess, 10) > 0 do
-    begin
+    repeat
       (*
-      repeat
-        while PeekMessage(Msg, 0, 0, 0, pm_Remove) do
-        begin
-          if Msg.Message = wm_Quit then Halt(Msg.WParam);
-          TranslateMessage(Msg);
-          DispatchMessage(Msg);
-        end;
-        GetExitCodeProcess(ProcessInfo.hProcess,lpExitCode);
-      until lpExitCode <> Still_Active;
+      while PeekMessage(Msg, 0, 0, 0, pm_Remove) do
+      begin
+        if Msg.Message = wm_Quit then
+          Halt(Msg.WParam);
+        TranslateMessage(Msg);
+        DispatchMessage(Msg);
+      end;
       *)
-    end;
+      GetExitCodeProcess(LProcessInformation.hProcess, LExitCode);
+    until LExitCode <> STILL_ACTIVE;
   finally
     CloseHandle(LProcessInformation.hProcess);
     CloseHandle(LProcessInformation.hThread);
@@ -59,20 +56,40 @@ begin
     Result := AFilename
 end;
 
+function DirEmpty(const ADirectory: string): Boolean;
+var
+  LFiles: TStringDynArray;
+begin
+  LFiles := TDirectory.GetFiles(ADirectory, '*.*', TSearchOption.soTopDirectoryOnly);
+
+  Result := Length(LFiles) = 0;
+end;
+
 procedure CompressFile(const ARootDirectory, AFilename: string);
 const
   EXE_7Z = 'C:\Program Files\7-Zip\7z.exe';
 var
   LFileNameOnly: string;
+  LDestinationDir: string;
+  LCommandLine: string;
 begin
   LFileNameOnly := GetFileNameOnly(AFilename);
+  LDestinationDir := ARootDirectory + LFileNameOnly;
 
-  if not DirectoryExists(ARootDirectory + LFileNameOnly) then
-    ForceDirectories(ARootDirectory + LFileNameOnly);
+  if not DirectoryExists(LDestinationDir) then
+    ForceDirectories(LDestinationDir)
+  else if not DirEmpty(LDestinationDir) then
+  begin
+    WriteLn('Destination dir not empty: ' + LDestinationDir.QuotedString('"'));
+    Exit;
+  end;
 
-  ExecuteAndWait(EXE_7Z + ' ' + 'a -mx9 -md128m -mfb128 -mmt=off -v500m "'
-    + IncludeTrailingPathDelimiter(ARootDirectory + LFileNameOnly) + LFileNameOnly + '.7z" "'
-    + ARootDirectory + AFilename + '"');
+  LCommandLine := EXE_7Z + ' ' + 'a -mx9 -md128m -mfb128 -mmt=off -v500m "'
+    + IncludeTrailingPathDelimiter(LDestinationDir) + LFileNameOnly + '.7z" "'
+    + ARootDirectory + AFilename + '"';
+  WriteLn('Executing: ' + LCommandLine + '...');
+
+  ExecuteAndWait(LCommandLine);
 end;
 
 
