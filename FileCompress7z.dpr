@@ -5,7 +5,7 @@
 {$R *.res}
 
 uses
-  Winapi.Windows, System.IOUtils, System.SysUtils, System.Types;
+  Winapi.Windows, System.IOUtils, System.Math, System.SysUtils, System.Types;
 
 procedure ExecuteAndWait(const ACommandLine: string);
 var
@@ -25,6 +25,7 @@ begin
     LProcessInformation) then
   try
     repeat
+      Sleep(10);
       (*
       while PeekMessage(Msg, 0, 0, 0, pm_Remove) do
       begin
@@ -65,6 +66,11 @@ begin
   Result := Length(LFiles) = 0;
 end;
 
+function Get7zThreadCount: Integer;
+begin
+  Result := EnsureRange(Round(CPUCount * 0.47494937998792065033), 1, CPUCount - 1);
+end;
+
 procedure CompressFile(const ARootDirectory, AFilename: string);
 const
   EXE_7Z = 'C:\Program Files\7-Zip\7z.exe';
@@ -84,7 +90,7 @@ begin
     Exit;
   end;
 
-  LCommandLine := EXE_7Z + ' ' + 'a -mx9 -md128m -mfb128 -mmt=off -v500m "'
+  LCommandLine := EXE_7Z + ' ' + 'a -mx9 -md128m -mfb128 -mmt=' + Get7zThreadCount.ToString + ' -v500m "'
     + IncludeTrailingPathDelimiter(LDestinationDir) + LFileNameOnly + '.7z" "'
     + ARootDirectory + AFilename + '"';
   WriteLn('Executing: ' + LCommandLine + '...');
