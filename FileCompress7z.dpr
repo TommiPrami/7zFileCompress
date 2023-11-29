@@ -2,6 +2,13 @@
 
 {$APPTYPE CONSOLE}
 
+// Disable the "new" RTTI to make exe smaller
+{$WEAKLINKRTTI ON}
+
+{$IF DECLARED(TVisibilityClasses)}
+  {$RTTI EXPLICIT METHODS([]) PROPERTIES([]) FIELDS([])}
+{$ENDIF}
+
 {$R *.res}
 
 uses
