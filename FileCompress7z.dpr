@@ -12,7 +12,40 @@
 {$R *.res}
 
 uses
-  Winapi.Windows, System.IOUtils, System.Math, System.SysUtils, System.Types;
+  Winapi.Windows, System.IOUtils, System.Math, System.Classes, System.SyncObjs, System.SysUtils, System.Types, System.Threading;
+
+var
+  GCriticalSection: TCriticalSection;
+  FLastIdleTime: Int64;
+  FLastKernelTime: Int64;
+  FLastUserTime: Int64;
+
+procedure ZeroOutGlobals;
+begin
+  GCriticalSection := nil;
+
+  FLastIdleTime := 0;
+  FLastKernelTime := 0;
+  FLastUserTime := 0;
+end;
+
+procedure LockingWriteLn(const ALine: string);
+begin
+  if not Assigned(GCriticalSection) then
+    Exit;
+
+  GCriticalSection.Acquire;
+  try
+    WriteLn(ALine);
+  finally
+    GCriticalSection.Release;
+  end;
+end;
+
+function GetMaxThreadCount: Integer;
+begin
+  Result := EnsureRange(Round(CPUCount * 0.69696969696969), 1, CPUCount);
+end;
 
 procedure ExecuteAndWait(const ACommandLine: string);
 var
@@ -20,6 +53,7 @@ var
   LProcessInformation: TProcessInformation;
   LCommandLine: string;
   LExitCode: DWORD;
+  LCreationFlags: DWORD;
 begin
   LCommandLine := Trim(ACommandLine);
 
@@ -28,7 +62,9 @@ begin
   LStartupInfo.cb := SizeOf(TStartupInfo);
   LStartupInfo.wShowWindow := SW_SHOW;
 
-  if CreateProcess(nil, PChar(LCommandLine), nil, nil, True, 0, nil, nil, LStartupInfo,
+  LCreationFlags := NORMAL_PRIORITY_CLASS or CREATE_NEW_CONSOLE;
+
+  if CreateProcess(nil, PChar(LCommandLine), nil, nil, True, LCreationFlags, nil, nil, LStartupInfo,
     LProcessInformation) then
   try
     repeat
@@ -73,9 +109,64 @@ begin
   Result := Length(LFiles) = 0;
 end;
 
-function Get7zThreadCount: Integer;
+function FileTimeToInt64(const FileTime: _FILETIME): Int64;
 begin
-  Result := EnsureRange(Round(CPUCount * 0.47494937998792065033), 1, CPUCount - 1);
+  Result := Int64(FileTime.dwHighDateTime) shl 32 or FileTime.dwLowDateTime;
+end;
+
+function TotalCpuUsage: Double;
+var
+  IdleTime, KernelTime, UserTime: _FILETIME;
+  IdleDiff, KernelDiff, UserDiff, TotalDiff: Int64;
+begin
+  // Call GetSystemTimes to get the current system times
+  if GetSystemTimes(IdleTime, KernelTime, UserTime) then
+  begin
+    // Convert FILETIME to Int64
+    IdleDiff := FileTimeToInt64(IdleTime) - FLastIdleTime;
+    KernelDiff := FileTimeToInt64(KernelTime) - FLastKernelTime;
+    UserDiff := FileTimeToInt64(UserTime) - FLastUserTime;
+
+    // Calculate the total difference
+    TotalDiff := KernelDiff + UserDiff;
+
+    // Update the last values for the next iteration
+    FLastIdleTime := FileTimeToInt64(IdleTime);
+    FLastKernelTime := FileTimeToInt64(KernelTime);
+    FLastUserTime := FileTimeToInt64(UserTime);
+
+    // Calculate the CPU percentage
+    if TotalDiff > 0 then
+      Result := 100.0 - ((IdleDiff * 100.0) / TotalDiff)
+    else
+      Result := 0.0;
+  end
+  else
+    Result := 0.0;
+end;
+
+function GetAvailableMemoryPercentage: Integer;
+var
+  LMemoryStatus: TMemoryStatus;
+begin
+  // Retrieve the memory status once
+  LMemoryStatus.dwLength := SizeOf(TMemoryStatus);
+  GlobalMemoryStatus(LMemoryStatus);
+
+  Result := LMemoryStatus.dwMemoryLoad;
+end;
+
+procedure WaitForSystemStatus;
+var
+  LRepeatCounter: Integer;
+begin
+  LRepeatCounter := 0;
+
+  while (LRepeatCounter < 35) and ((TotalCpuUsage > 80.00) or (GetAvailableMemoryPercentage > 80.00)) do
+  begin
+    Sleep(100);
+    Inc(LRepeatCounter); // Give some time to other processes to wake up
+  end;
 end;
 
 procedure CompressFile(const ARootDirectory, AFilename: string);
@@ -89,68 +180,100 @@ begin
   LFileNameOnly := GetFileNameOnly(AFilename);
   LDestinationDir := ARootDirectory + LFileNameOnly;
 
-  if not DirectoryExists(LDestinationDir) then
-    ForceDirectories(LDestinationDir)
-  else if not DirEmpty(LDestinationDir) then
-  begin
-    WriteLn('Destination dir not empty: ' + LDestinationDir.QuotedString('"'));
-    Exit;
+  GCriticalSection.Acquire;
+  try
+    if not DirectoryExists(LDestinationDir) then
+      ForceDirectories(LDestinationDir)
+    else if not DirEmpty(LDestinationDir) then
+    begin
+      WriteLn('Destination dir not empty: ' + LDestinationDir.QuotedString('"'));
+      Exit;
+    end;
+
+    LCommandLine := EXE_7Z + ' ' + 'a -mx9 -md256m -mfb128 -mmt=off -v500m "'
+      + IncludeTrailingPathDelimiter(LDestinationDir) + LFileNameOnly + '.7z" "'
+      + ARootDirectory + AFilename + '"';
+    WriteLn('Executing: ' + LCommandLine + '...');
+  finally
+    GCriticalSection.Release;
   end;
 
-  LCommandLine := EXE_7Z + ' ' + 'a -mx9 -md128m -mfb128 -mmt=' + Get7zThreadCount.ToString + ' -v500m "'
-    + IncludeTrailingPathDelimiter(LDestinationDir) + LFileNameOnly + '.7z" "'
-    + ARootDirectory + AFilename + '"';
-  WriteLn('Executing: ' + LCommandLine + '...');
+  WaitForSystemStatus;
 
   ExecuteAndWait(LCommandLine);
 end;
-
 
 procedure PrintHelp;
 begin
   // TODO: Add info what app supposed to do
 
-  WriteLn('FileCompress7z RootPath SearchPattern');
-  WriteLn('  FileCompress7z "C:\Temp\" *.largefile');
-  WriteLn('');
+  GCriticalSection.Acquire;
+  try
+    WriteLn('FileCompress7z RootPath SearchPattern');
+    WriteLn('  FileCompress7z "C:\Temp\" *.largefile');
+    WriteLn('');
+  finally
+    GCriticalSection.Release;
+  end;
 end;
 
 var
   LRootFolder: string;
   LSearchPattern: string;
   LFiles: TStringDynArray;
-  LCurrentFile: string;
+  LThreadPoool: TThreadPool;
 begin
+  ZeroOutGlobals;
+
+  GCriticalSection := TCriticalSection.Create;
   try
-    LRootFolder := IncludeTrailingPathDelimiter(ParamStr(1));
-    LSearchPattern := ParamStr(2);
+    try
+      LRootFolder := IncludeTrailingPathDelimiter(ParamStr(1));
+      LSearchPattern := ParamStr(2);
 
-    if DirectoryExists(LRootFolder) and not LSearchPattern.IsEmpty then
-    begin
-      //
-      LFiles := TDirectory.GetFiles(LRootFolder, LSearchPattern, TSearchOption.soTopDirectoryOnly);
-
-      if Length(LFiles) > 0 then
+      if DirectoryExists(LRootFolder) and not LSearchPattern.IsEmpty then
       begin
-        for LCurrentFile in LFiles do
+        //
+        LFiles := TDirectory.GetFiles(LRootFolder, LSearchPattern, TSearchOption.soTopDirectoryOnly);
+
+        if Length(LFiles) > 0 then
         begin
-          CompressFile(LRootFolder, ExtractFileName(LCurrentFile));
+          LThreadPoool := TThreadPool.Create;
+          try
+            LThreadPoool.SetMaxWorkerThreads(GetMaxThreadCount);
+
+            TParallel.&for(Low(LFiles), High(LFiles),
+              procedure(AFileIndex: Integer)
+              var
+                LCurrentFile: string;
+              begin
+                LCurrentFile := LFiles[AFileIndex];
+
+                CompressFile(LRootFolder, ExtractFileName(LCurrentFile));
+              end,
+              LThreadPoool
+            );
+          finally
+            LThreadPoool.Free;
+          end;
+        end
+        else
+        begin
+          LockingWriteLn('No files found from directory "' + LRootFolder + '" with search pattern "' + LSearchPattern + '"');
+          Exit;
         end;
       end
       else
       begin
-        WriteLn('No files found from directory "' + LRootFolder + '" with search pattern "' + LSearchPattern + '"');
+        PrintHelp;
         Exit;
       end;
-    end
-    else
-    begin
-      PrintHelp;
-      Exit;
-    end;
 
-  except
-    on E: Exception do
-      Writeln(E.ClassName, ': ', E.Message);
+    except
+      on E: Exception do
+        LockingWriteLn(E.ClassName + ': ' + E.Message);
+    end;
+  finally
+    FreeAndNil(GCriticalSection);
   end;
 end.
