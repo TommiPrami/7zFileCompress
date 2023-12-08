@@ -20,13 +20,43 @@ var
   FLastKernelTime: Int64;
   FLastUserTime: Int64;
 
-procedure ZeroOutGlobals;
+function FileTimeToInt64(const FileTime: TFileTime): Int64;
+begin
+  Result := Int64(FileTime.dwHighDateTime) shl 32 or FileTime.dwLowDateTime;
+end;
+
+function TotalCpuUsage: Double;
+var
+  LIdleTime, LKernelTime, LUserTime: TFileTime;
+  LIdleDiff, LKernelDiff, LUserDiff, LTotalCpuTime: Int64;
+begin
+  if GetSystemTimes(LIdleTime, LKernelTime, LUserTime) then
+  begin
+    LIdleDiff := FileTimeToInt64(LIdleTime) - FLastIdleTime;
+    LKernelDiff := FileTimeToInt64(LKernelTime) - FLastKernelTime;
+    LUserDiff := FileTimeToInt64(LUserTime) - FLastUserTime;
+
+    LTotalCpuTime := LKernelDiff + LUserDiff;
+
+    FLastIdleTime := FileTimeToInt64(LIdleTime);
+    FLastKernelTime := FileTimeToInt64(LKernelTime);
+    FLastUserTime := FileTimeToInt64(LUserTime);
+
+    if LTotalCpuTime > 0 then
+      Result := 100.0 - ((LIdleDiff * 100.0) / LTotalCpuTime)
+    else
+      Result := 0.00;
+  end
+  else
+    Result := 0.00;
+end;
+
+procedure InitializeGlobals;
 begin
   GCriticalSection := nil;
 
-  FLastIdleTime := 0;
-  FLastKernelTime := 0;
-  FLastUserTime := 0;
+  // Seems to need at least one call to return any sane info
+  TotalCpuUsage;
 end;
 
 procedure LockingWriteLn(const ALine: string);
@@ -109,42 +139,6 @@ begin
   Result := Length(LFiles) = 0;
 end;
 
-function FileTimeToInt64(const FileTime: _FILETIME): Int64;
-begin
-  Result := Int64(FileTime.dwHighDateTime) shl 32 or FileTime.dwLowDateTime;
-end;
-
-function TotalCpuUsage: Double;
-var
-  IdleTime, KernelTime, UserTime: _FILETIME;
-  IdleDiff, KernelDiff, UserDiff, TotalDiff: Int64;
-begin
-  // Call GetSystemTimes to get the current system times
-  if GetSystemTimes(IdleTime, KernelTime, UserTime) then
-  begin
-    // Convert FILETIME to Int64
-    IdleDiff := FileTimeToInt64(IdleTime) - FLastIdleTime;
-    KernelDiff := FileTimeToInt64(KernelTime) - FLastKernelTime;
-    UserDiff := FileTimeToInt64(UserTime) - FLastUserTime;
-
-    // Calculate the total difference
-    TotalDiff := KernelDiff + UserDiff;
-
-    // Update the last values for the next iteration
-    FLastIdleTime := FileTimeToInt64(IdleTime);
-    FLastKernelTime := FileTimeToInt64(KernelTime);
-    FLastUserTime := FileTimeToInt64(UserTime);
-
-    // Calculate the CPU percentage
-    if TotalDiff > 0 then
-      Result := 100.0 - ((IdleDiff * 100.0) / TotalDiff)
-    else
-      Result := 0.0;
-  end
-  else
-    Result := 0.0;
-end;
-
 function GetAvailableMemoryPercentage: Integer;
 var
   LMemoryStatus: TMemoryStatus;
@@ -223,7 +217,7 @@ var
   LFiles: TStringDynArray;
   LThreadPoool: TThreadPool;
 begin
-  ZeroOutGlobals;
+  InitializeGlobals;
 
   GCriticalSection := TCriticalSection.Create;
   try
@@ -242,7 +236,7 @@ begin
           try
             LThreadPoool.SetMaxWorkerThreads(GetMaxThreadCount);
 
-            TParallel.&for(Low(LFiles), High(LFiles),
+            TParallel.&For(Low(LFiles), High(LFiles),
               procedure(AFileIndex: Integer)
               var
                 LCurrentFile: string;
