@@ -5,8 +5,11 @@
 {$R *.res}
 
 uses
-  Winapi.Windows, System.IOUtils, System.Math, System.Classes, System.SyncObjs, System.SysUtils, System.Types,
-  OtlParallel, OtlCommon, OtlCollections;
+  Winapi.Windows, Winapi.Messages, System.IOUtils, System.Math, System.Classes, System.SyncObjs, System.SysUtils,
+  System.Types, OtlParallel, OtlCommon, OtlCollections, OtlTask;
+
+const
+  MSG_STATUS = WM_USER;
 
 var
   GCriticalSection: TCriticalSection;
@@ -66,9 +69,11 @@ begin
   end;
 end;
 
-function GetMaxThreadCount: Integer;
+function GetMaxThreadCount(const AMaxThreadCount: Integer): Integer;
 begin
   Result := EnsureRange(Round(CPUCount * 0.69696969696969), 1, CPUCount);
+
+  Result := Min(Result, AMaxThreadCount);
 end;
 
 procedure ExecuteAndWait(const ACommandLine: string);
@@ -91,17 +96,20 @@ begin
   if CreateProcess(nil, PChar(LCommandLine), nil, nil, True, LCreationFlags, nil, nil, LStartupInfo,
     LProcessInformation) then
   try
+    var LMsg: TMsg;
+
     repeat
       Sleep(10);
-      (*
-      while PeekMessage(Msg, 0, 0, 0, pm_Remove) do
+
+      while PeekMessage(LMsg, 0, 0, 0, PM_REMOVE) do
       begin
-        if Msg.Message = wm_Quit then
-          Halt(Msg.WParam);
-        TranslateMessage(Msg);
-        DispatchMessage(Msg);
+        if LMsg.Message = WM_QUIT then
+          Exit;
+
+        TranslateMessage(LMsg);
+        DispatchMessage(LMsg);
       end;
-      *)
+
       GetExitCodeProcess(LProcessInformation.hProcess, LExitCode);
     until LExitCode <> STILL_ACTIVE;
   finally
@@ -150,7 +158,7 @@ var
 begin
   LRepeatCounter := 0; // Give some time to other processes to wake up
 
-  while (LRepeatCounter < 35) and ((TotalCpuUsage > 80.00) or (GetAvailableMemoryPercentage > 80.00)) do
+  while (LRepeatCounter <= 35) or ((TotalCpuUsage > 80.00) or (GetAvailableMemoryPercentage > 80.00)) do
   begin
     Sleep(100);
     Inc(LRepeatCounter);
@@ -192,6 +200,17 @@ begin
   ExecuteAndWait(LCommandLine);
 end;
 
+procedure ProcessMessages;
+var
+  LMsg: TMsg;
+begin
+  while Integer(PeekMessage(LMsg, 0, 0, 0, PM_REMOVE)) <> 0 do
+  begin
+    TranslateMessage(LMsg);
+    DispatchMessage(LMsg);
+  end;
+end;
+
 procedure PrintHelp;
 begin
   // TODO: Add info what app supposed to do
@@ -227,7 +246,7 @@ begin
 
         if LFiles.Count > 0 then
         begin
-          Parallel.ForEach(LFiles).NumTasks(GetMaxThreadCount).Execute(
+          Parallel.ForEach(LFiles).Execute(
             procedure(const AFileName: TOmniValue)
             var
               LCurrentFile: string;
