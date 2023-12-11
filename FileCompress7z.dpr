@@ -154,12 +154,12 @@ procedure WaitForSystemStatus;
 var
   LRepeatCounter: Integer;
 begin
-  LRepeatCounter := 0;
+  LRepeatCounter := 0; // Give some time to other processes to wake up
 
   while (LRepeatCounter < 35) and ((TotalCpuUsage > 80.00) or (GetAvailableMemoryPercentage > 80.00)) do
   begin
     Sleep(100);
-    Inc(LRepeatCounter); // Give some time to other processes to wake up
+    Inc(LRepeatCounter);
   end;
 end;
 
@@ -187,6 +187,7 @@ begin
     LCommandLine := EXE_7Z + ' ' + 'a -mx9 -md256m -mfb128 -mmt=off -v500m "'
       + IncludeTrailingPathDelimiter(LDestinationDir) + LFileNameOnly + '.7z" "'
       + ARootDirectory + AFilename + '"';
+
     WriteLn('Executing: ' + LCommandLine + '...');
   finally
     GCriticalSection.Release;
@@ -262,7 +263,6 @@ begin
         PrintHelp;
         Exit;
       end;
-
     except
       on E: Exception do
         LockingWriteLn(E.ClassName + ': ' + E.Message);
