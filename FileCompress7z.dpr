@@ -2,17 +2,11 @@
 
 {$APPTYPE CONSOLE}
 
-// Disable the "new" RTTI to make exe smaller
-{$WEAKLINKRTTI ON}
-
-{$IF DECLARED(TVisibilityClasses)}
-  {$RTTI EXPLICIT METHODS([]) PROPERTIES([]) FIELDS([])}
-{$ENDIF}
-
 {$R *.res}
 
 uses
-  Winapi.Windows, System.IOUtils, System.Math, System.Classes, System.SyncObjs, System.SysUtils, System.Types, System.Threading;
+  Winapi.Windows, System.IOUtils, System.Math, System.Classes, System.SyncObjs, System.SysUtils, System.Types,
+  OtlParallel, OtlCommon, OtlCollections;
 
 var
   GCriticalSection: TCriticalSection;
@@ -215,11 +209,11 @@ end;
 var
   LRootFolder: string;
   LSearchPattern: string;
-  LFiles: TStringDynArray;
-  LThreadPoool: TThreadPool;
+  LFiles: TStringList;
 begin
   InitializeGlobals;
 
+  LFiles := TStringList.Create;
   GCriticalSection := TCriticalSection.Create;
   try
     try
@@ -229,28 +223,20 @@ begin
       if DirectoryExists(LRootFolder) and not LSearchPattern.IsEmpty then
       begin
         //
-        LFiles := TDirectory.GetFiles(LRootFolder, LSearchPattern, TSearchOption.soTopDirectoryOnly);
+        LFiles.AddStrings(TDirectory.GetFiles(LRootFolder, LSearchPattern, TSearchOption.soTopDirectoryOnly));
 
-        if Length(LFiles) > 0 then
+        if LFiles.Count > 0 then
         begin
-          LThreadPoool := TThreadPool.Create;
-          try
-            LThreadPoool.SetMaxWorkerThreads(GetMaxThreadCount);
+          Parallel.ForEach(LFiles).NumTasks(GetMaxThreadCount).Execute(
+            procedure(const AFileName: TOmniValue)
+            var
+              LCurrentFile: string;
+            begin
+              LCurrentFile := AFileName;
 
-            TParallel.&For(Low(LFiles), High(LFiles),
-              procedure(AFileIndex: Integer)
-              var
-                LCurrentFile: string;
-              begin
-                LCurrentFile := LFiles[AFileIndex];
-
-                CompressFile(LRootFolder, ExtractFileName(LCurrentFile));
-              end,
-              LThreadPoool
-            );
-          finally
-            LThreadPoool.Free;
-          end;
+              CompressFile(LRootFolder, ExtractFileName(LCurrentFile));
+            end
+          );
         end
         else
         begin
@@ -269,5 +255,6 @@ begin
     end;
   finally
     FreeAndNil(GCriticalSection);
+    LFiles.Free;
   end;
 end.
