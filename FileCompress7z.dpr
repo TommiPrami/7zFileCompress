@@ -69,11 +69,9 @@ begin
   end;
 end;
 
-function GetMaxThreadCount(const AMaxThreadCount: Integer): Integer;
+function GetMaxThreadCount: Integer;
 begin
   Result := EnsureRange(Round(CPUCount * 0.69696969696969), 1, CPUCount);
-
-  Result := Min(Result, AMaxThreadCount);
 end;
 
 procedure ExecuteAndWait(const ACommandLine: string);
@@ -262,7 +260,7 @@ begin
 
         if LFiles.Count > 0 then
         begin
-          Parallel.ForEach(LFiles).NumTasks(GetMaxThreadCount(LFiles.Count)).NoWait.Execute(
+          Parallel.ForEach(LFiles).NumTasks(GetMaxThreadCount).NoWait.Execute(
             procedure(const AFileName: TOmniValue)
             var
               LCurrentFile: string;
