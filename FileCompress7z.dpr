@@ -124,12 +124,13 @@ function GetFileNameOnly(const AFilename: string): string;
 var
   LExtension: string;
 begin
-  LExtension := ExtractFileExt(AFilename);
+  Result := ExtractFileName(AFilename);
+  LExtension := ExtractFileExt(Result);
 
   if not LExtension.IsEmpty then
-    Result := Copy(AFilename, 1, AFilename.Length - LExtension.Length)
+    Result := Copy(Result, 1, Result.Length - LExtension.Length)
   else
-    Result := AFilename
+    Result := Result
 end;
 
 function DirEmpty(const ADirectory: string): Boolean;
@@ -178,14 +179,6 @@ begin
 
   GCriticalSection.Acquire;
   try
-    if not DirectoryExists(LDestinationDir) then
-      ForceDirectories(LDestinationDir)
-    else if not DirEmpty(LDestinationDir) then
-    begin
-      WriteLn('Destination dir not empty: ' + LDestinationDir.QuotedString('"'));
-      Exit;
-    end;
-
     LCommandLine := EXE_7Z + ' ' + 'a -mx9 -md256m -mfb128 -mmt=off -v500m "'
       + IncludeTrailingPathDelimiter(LDestinationDir) + LFileNameOnly + '.7z" "'
       + ARootDirectory + AFilename + '"';
@@ -198,6 +191,27 @@ begin
   WaitForSystemStatus;
 
   ExecuteAndWait(LCommandLine);
+end;
+
+procedure FilterByDirectories(const AFiles: TStringList; const ARootDirectory: string);
+var
+  LIndex: Integer;
+  LFileNameOnly: string;
+  LDestinationDir: string;
+begin
+  for LIndex := AFiles.Count - 1 downto 0 do
+  begin
+    LFileNameOnly := GetFileNameOnly(AFiles[LIndex]);
+    LDestinationDir := ARootDirectory + LFileNameOnly;
+
+    if not DirectoryExists(LDestinationDir) then
+      ForceDirectories(LDestinationDir)
+    else if not DirEmpty(LDestinationDir) then
+    begin
+      WriteLn('Destination dir not empty: ' + LDestinationDir.QuotedString('"'));
+      AFiles.Delete(LIndex);
+    end;
+  end;
 end;
 
 procedure ProcessMessages;
@@ -244,9 +258,11 @@ begin
         //
         LFiles.AddStrings(TDirectory.GetFiles(LRootFolder, LSearchPattern, TSearchOption.soTopDirectoryOnly));
 
+        FilterByDirectories(LFiles, LRootFolder);
+
         if LFiles.Count > 0 then
         begin
-          Parallel.ForEach(LFiles).NoWait.Execute(
+          Parallel.ForEach(LFiles).NumTasks(GetMaxThreadCount(LFiles.Count)).NoWait.Execute(
             procedure(const AFileName: TOmniValue)
             var
               LCurrentFile: string;
