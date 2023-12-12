@@ -246,7 +246,7 @@ begin
 
         if LFiles.Count > 0 then
         begin
-          Parallel.ForEach(LFiles).Execute(
+          Parallel.ForEach(LFiles).NoWait.Execute(
             procedure(const AFileName: TOmniValue)
             var
               LCurrentFile: string;
@@ -256,6 +256,12 @@ begin
               CompressFile(LRootFolder, ExtractFileName(LCurrentFile));
             end
           );
+
+          while True do
+          begin
+            Sleep(100);
+            ProcessMessages;
+          end;
         end
         else
         begin
