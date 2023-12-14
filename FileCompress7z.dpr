@@ -16,6 +16,7 @@ var
   FLastIdleTime: Int64;
   FLastKernelTime: Int64;
   FLastUserTime: Int64;
+  FRunningTasks: Boolean;
 
 function FileTimeToInt64(const FileTime: TFileTime): Int64;
 begin
@@ -260,7 +261,19 @@ begin
 
         if LFiles.Count > 0 then
         begin
-          Parallel.ForEach(LFiles).NumTasks(GetMaxThreadCount).NoWait.Execute(
+          FRunningTasks := True;
+
+          Parallel.ForEach(LFiles).NumTasks(GetMaxThreadCount).NoWait.OnStopInvoke(
+            procedure
+            begin
+              GCriticalSection.Acquire;
+              try
+                FRunningTasks := False;
+              finally
+                GCriticalSection.Release;
+              end;
+            end)
+            .Execute(
             procedure(const AFileName: TOmniValue)
             var
               LCurrentFile: string;
@@ -275,6 +288,14 @@ begin
           begin
             Sleep(100);
             ProcessMessages;
+
+            GCriticalSection.Acquire;
+            try
+              if not FRunningTasks then
+                Break;
+            finally
+              GCriticalSection.Release;
+            end;
           end;
         end
         else
