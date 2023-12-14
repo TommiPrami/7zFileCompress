@@ -129,8 +129,6 @@ begin
   if CreateProcess(nil, PChar(LCommandLine), nil, nil, True, LCreationFlags, nil, nil, LStartupInfo,
     LProcessInformation) then
   try
-    var LMsg: TMsg;
-
     repeat
       Sleep(10);
 
