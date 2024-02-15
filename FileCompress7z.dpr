@@ -189,7 +189,7 @@ begin
 
   FCriticalSection.Acquire;
   try
-    LCommandLine := EXE_7Z + ' ' + 'a -mx3 -md32m -mfb64 -mmt=off -v750m "'
+    LCommandLine := EXE_7Z + ' ' + 'a -mx2 -md32m -mfb64 -mmt=off -v1000m "'
       + IncludeTrailingPathDelimiter(LDestinationDir) + LFileNameOnly + '.7z" "'
       + ARootDirectory + AFilename + '"';
 
