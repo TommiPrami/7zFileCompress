@@ -64,25 +64,26 @@ begin
     begin
       FRunningTasks := True;
 
-      Parallel.ForEach(LFiles).NumTasks(GetMaxThreadCount).NoWait.OnStopInvoke(
-        procedure
-        begin
-          FCriticalSection.Acquire;
-          try
-            FRunningTasks := False;
-          finally
-            FCriticalSection.Release;
-          end;
-        end)
+      Parallel.ForEach(LFiles).NumTasks(GetMaxThreadCount)
+        .NoWait.OnStopInvoke(
+          procedure
+          begin
+            FCriticalSection.Acquire;
+            try
+              FRunningTasks := False;
+            finally
+              FCriticalSection.Release;
+            end;
+          end)
         .Execute(
-        procedure(const AFileName: TOmniValue)
-        var
-          LCurrentFile: string;
-        begin
-          LCurrentFile := AFileName;
+          procedure(const AFileName: TOmniValue)
+          var
+            LCurrentFile: string;
+          begin
+            LCurrentFile := AFileName;
 
-          CompressFile(FRootPath, ExtractFileName(LCurrentFile));
-        end
+            CompressFile(FRootPath, ExtractFileName(LCurrentFile));
+          end
       );
 
       while True do
@@ -189,7 +190,7 @@ begin
 
   FCriticalSection.Acquire;
   try
-    LCommandLine := EXE_7Z + ' ' + 'a -mx1 -md32m -mfb64 -mmt=off -v1000m "'
+    LCommandLine := EXE_7Z + ' ' + 'a -mx1 -mmt4 -v1000m "'
       + IncludeTrailingPathDelimiter(LDestinationDir) + LFileNameOnly + '.7z" "'
       + ARootDirectory + AFilename + '"';
 
