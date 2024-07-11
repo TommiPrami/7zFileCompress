@@ -3,7 +3,10 @@ unit FileCompress7z.Utils;
 interface
 
 uses
-  Winapi.Messages, Winapi.Windows, System.Diagnostics;
+  Winapi.Messages, Winapi.Windows, System.Diagnostics, System.SysUtils;
+
+type
+  TFCPriorityClass = (fcpcIdle, fcpcBelowNormal, fcpcNormal, fcpcAboveNormal, fcpcHigh, fcpcRealTime);
 
   function DirEmpty(const ADirectory: string): Boolean;
   function FileTimeToInt64(const FileTime: TFileTime): Int64;
@@ -13,6 +16,8 @@ uses
   procedure PrintHelp;
   procedure ProcessMessages;
   procedure WaitForSystemStatus(const AWaiMillisecs: Integer; const AMaxTotalCpuUsagePercentage, AMaxAValilableMemoryPercentage: Double);
+  procedure ExecuteAndWait(const ACommandLine: string; const APriorityClass: TFCPriorityClass = fcpcNormal);
+  function GetFileNameOnly(const AFilename: string): string;
 
 implementation
 
@@ -21,11 +26,27 @@ uses
 
 const
   CPU_FACTOR: Double = 0.69696969696969;
+  ABOVE_NORMAL_PRIORITY_CLASS = $00008000;
+  BELOW_NORMAL_PRIORITY_CLASS = $00004000;
 
 var
   GLastIdleTime: Int64;
   GLastKernelTime: Int64;
   GLastUserTime: Int64;
+
+function PriorityClassToNumeric(const APriorityClass: TFCPriorityClass): Cardinal;
+begin
+  Result := 0; // Shut up the compiler
+
+  case APriorityClass of
+    fcpcIdle: Result := IDLE_PRIORITY_CLASS;
+    fcpcBelowNormal: Result := BELOW_NORMAL_PRIORITY_CLASS;
+    fcpcNormal: Result := NORMAL_PRIORITY_CLASS;
+    fcpcAboveNormal: Result := ABOVE_NORMAL_PRIORITY_CLASS;
+    fcpcHigh: Result := HIGH_PRIORITY_CLASS;
+    fcpcRealTime: Result := REALTIME_PRIORITY_CLASS;
+  end;
+end;
 
 function DirEmpty(const ADirectory: string): Boolean;
 var
@@ -115,6 +136,54 @@ begin
   begin
     Sleep(SLEEP_TIME);
   end;
+end;
+
+procedure ExecuteAndWait(const ACommandLine: string; const APriorityClass: TFCPriorityClass = fcpcNormal);
+var
+  LStartupInfo: TStartupInfo;
+  LProcessInformation: TProcessInformation;
+  LCommandLine: string;
+  LExitCode: DWORD;
+  LCreationFlags: DWORD;
+begin
+  LCommandLine := Trim(ACommandLine);
+
+  FillChar(LStartupInfo, SizeOf(LStartupInfo), 0);
+
+  LStartupInfo.cb := SizeOf(TStartupInfo);
+  LStartupInfo.wShowWindow := SW_SHOW;
+
+  LCreationFlags := PriorityClassToNumeric(APriorityClass) or CREATE_NEW_CONSOLE;
+
+  if CreateProcess(nil, PChar(LCommandLine), nil, nil, True, LCreationFlags, nil, nil, LStartupInfo,
+    LProcessInformation) then
+  try
+    repeat
+      Sleep(10);
+
+      ProcessMessages;
+
+      GetExitCodeProcess(LProcessInformation.hProcess, LExitCode);
+    until LExitCode <> STILL_ACTIVE;
+  finally
+    CloseHandle(LProcessInformation.hProcess);
+    CloseHandle(LProcessInformation.hThread);
+  end
+  else
+    RaiseLastOSError;
+end;
+
+function GetFileNameOnly(const AFilename: string): string;
+var
+  LExtension: string;
+begin
+  Result := ExtractFileName(AFilename);
+  LExtension := ExtractFileExt(Result);
+
+  if not LExtension.IsEmpty then
+    Result := Copy(Result, 1, Result.Length - LExtension.Length)
+  else
+    Result := Result
 end;
 
 procedure PrintHelp;

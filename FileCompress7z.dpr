@@ -26,8 +26,6 @@ type
     FRootPath: string;
     FSearchPattern: string;
     procedure LockingWriteLn(const ALine: string);
-    procedure ExecuteAndWait(const ACommandLine: string);
-    function GetFileNameOnly(const AFilename: string): string;
     procedure CompressFile(const ARootDirectory, AFilename: string);
     procedure FilterByDirectories(const AFiles: TStringList; const ARootDirectory: string);
   public
@@ -64,8 +62,9 @@ begin
     begin
       FRunningTasks := True;
 
-      Parallel.ForEach(LFiles).NumTasks(GetMaxThreadCount)
-        .NoWait.OnStopInvoke(
+      Parallel.ForEach(LFiles)
+        .NumTasks(GetMaxThreadCount)
+        .OnStop(
           procedure
           begin
             FCriticalSection.Acquire;
@@ -75,6 +74,7 @@ begin
               FCriticalSection.Release;
             end;
           end)
+        .NoWait
         .Execute(
           procedure(const AFileName: TOmniValue)
           var
@@ -88,7 +88,7 @@ begin
 
       while True do
       begin
-        Sleep(100);
+        Sleep(200);
         ProcessMessages;
 
         FCriticalSection.Acquire;
@@ -103,59 +103,12 @@ begin
     else
     begin
       LockingWriteLn('No files found from directory "' + FRootPath + '" with search pattern "' + FSearchPattern + '"');
+
       Exit;
     end;
   finally
     LFiles.Free;
   end;
-end;
-
-procedure TFileCompress7z.ExecuteAndWait(const ACommandLine: string);
-var
-  LStartupInfo: TStartupInfo;
-  LProcessInformation: TProcessInformation;
-  LCommandLine: string;
-  LExitCode: DWORD;
-  LCreationFlags: DWORD;
-begin
-  LCommandLine := Trim(ACommandLine);
-
-  FillChar(LStartupInfo, SizeOf(LStartupInfo), 0);
-
-  LStartupInfo.cb := SizeOf(TStartupInfo);
-  LStartupInfo.wShowWindow := SW_SHOW;
-
-  LCreationFlags := NORMAL_PRIORITY_CLASS or CREATE_NEW_CONSOLE;
-
-  if CreateProcess(nil, PChar(LCommandLine), nil, nil, True, LCreationFlags, nil, nil, LStartupInfo,
-    LProcessInformation) then
-  try
-    repeat
-      Sleep(10);
-
-      ProcessMessages;
-
-      GetExitCodeProcess(LProcessInformation.hProcess, LExitCode);
-    until LExitCode <> STILL_ACTIVE;
-  finally
-    CloseHandle(LProcessInformation.hProcess);
-    CloseHandle(LProcessInformation.hThread);
-  end
-  else
-    RaiseLastOSError;
-end;
-
-function TFileCompress7z.GetFileNameOnly(const AFilename: string): string;
-var
-  LExtension: string;
-begin
-  Result := ExtractFileName(AFilename);
-  LExtension := ExtractFileExt(Result);
-
-  if not LExtension.IsEmpty then
-    Result := Copy(Result, 1, Result.Length - LExtension.Length)
-  else
-    Result := Result
 end;
 
 constructor TFileCompress7z.Create(const ARootPath, ASearchPattern: string);
@@ -201,7 +154,7 @@ begin
 
   WaitForSystemStatus(3500, 80.00, 80.00);
 
-  ExecuteAndWait(LCommandLine);
+  ExecuteAndWait(LCommandLine, fcpcIdle);
 end;
 
 procedure TFileCompress7z.FilterByDirectories(const AFiles: TStringList; const ARootDirectory: string);
