@@ -25,6 +25,8 @@ type
     FRunningTasks: Boolean;
     FRootPath: string;
     FSearchPattern: string;
+    function Lock: Boolean; inline;
+    procedure Unlock; inline;
     procedure LockingWriteLn(const ALine: string);
     procedure CompressFile(const ARootDirectory, AFilename: string);
     procedure FilterByDirectories(const AFiles: TStringList; const ARootDirectory: string);
@@ -35,16 +37,31 @@ type
     procedure Execute;
   end;
 
-procedure TFileCompress7z.LockingWriteLn(const ALine: string);
+function TFileCompress7z.Lock: Boolean;
 begin
+  Result := False;
+
   if not Assigned(FCriticalSection) then
     Exit;
 
   FCriticalSection.Acquire;
+
+  Result := True;
+end;
+
+procedure TFileCompress7z.Unlock;
+begin
+  FCriticalSection.Release;
+end;
+
+procedure TFileCompress7z.LockingWriteLn(const ALine: string);
+begin
+
+  if Lock then
   try
     WriteLn(ALine);
   finally
-    FCriticalSection.Release;
+    Unlock;
   end;
 end;
 
@@ -67,11 +84,11 @@ begin
         .OnStop(
           procedure
           begin
-            FCriticalSection.Acquire;
+            if Lock then
             try
               FRunningTasks := False;
             finally
-              FCriticalSection.Release;
+              Unlock;
             end;
           end)
         .NoWait
@@ -91,12 +108,12 @@ begin
         Sleep(200);
         ProcessMessages;
 
-        FCriticalSection.Acquire;
+        if Lock then
         try
           if not FRunningTasks then
             Break;
         finally
-          FCriticalSection.Release;
+          Unlock;
         end;
       end;
     end
@@ -141,7 +158,7 @@ begin
   LFileNameOnly := GetFileNameOnly(AFilename);
   LDestinationDir := ARootDirectory + LFileNameOnly;
 
-  FCriticalSection.Acquire;
+  if Lock then
   try
     LCommandLine := EXE_7Z + ' ' + 'a -mx1 -mmt4 -v1000m "'
       + IncludeTrailingPathDelimiter(LDestinationDir) + LFileNameOnly + '.7z" "'
@@ -149,7 +166,7 @@ begin
 
     WriteLn('Executing: ' + LCommandLine + '...');
   finally
-    FCriticalSection.Release;
+    Unlock
   end;
 
   WaitForSystemStatus(3500, 80.00, 80.00);

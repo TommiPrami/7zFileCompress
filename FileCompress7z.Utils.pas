@@ -181,9 +181,7 @@ begin
   LExtension := ExtractFileExt(Result);
 
   if not LExtension.IsEmpty then
-    Result := Copy(Result, 1, Result.Length - LExtension.Length)
-  else
-    Result := Result
+    Result := Copy(Result, 1, Result.Length - LExtension.Length);
 end;
 
 procedure PrintHelp;
