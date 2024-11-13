@@ -160,7 +160,7 @@ begin
 
   if Lock then
   try
-    LCommandLine := EXE_7Z + ' ' + 'a -mx1 -mmt4 -v1000m "'
+    LCommandLine := EXE_7Z + ' ' + 'a -mx7 -md128m -mmt=off -v1000m "'
       + IncludeTrailingPathDelimiter(LDestinationDir) + LFileNameOnly + '.7z" "'
       + ARootDirectory + AFilename + '"';
 
