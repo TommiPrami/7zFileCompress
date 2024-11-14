@@ -12,6 +12,7 @@ uses
   System.SyncObjs,
   System.SysUtils,
   System.Types,
+  System.Diagnostics,
   OtlParallel,
   OtlCommon,
   OtlCollections,
@@ -77,6 +78,8 @@ begin
 
     if LFiles.Count > 0 then
     begin
+      var LStopWatch := TStopWatch.StartNew;
+
       FRunningTasks := True;
 
       Parallel.ForEach(LFiles)
@@ -116,6 +119,9 @@ begin
           Unlock;
         end;
       end;
+
+      LStopWatch.Stop;
+      LockingWriteLn(' Elapsed time: ' + LStopWatch.Elapsed.ToString);
     end
     else
     begin
